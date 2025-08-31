@@ -203,11 +203,7 @@ class ConcatFiles:
         self.original_output = None
 
 
-LICENSE_FILES = [
-    'LICENSE',
-    pt.join(JPEG_DIR, 'LICENSE.md'),
-    pt.join(JPEG_DIR, 'README.ijg')
-]
+LICENSE_FILES = ['LICENSE']
 with ConcatFiles(*LICENSE_FILES):
     setup(
         name='simplejpeg',
