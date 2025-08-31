@@ -89,19 +89,7 @@ def verify_file(path, reference_digest, read_size=128*1024):
 
 
 def untar_url(url, filename, reference_digest):
-    path = filename.rstrip('.tar.gz')
-    if not pt.exists(filename):
-        os.makedirs(pt.dirname(filename), exist_ok=True)
-        print('downloading', url)
-        urllib.request.urlretrieve(url, filename)
-    if not pt.exists(path):
-        print('verifying', filename)
-        verify_file(filename, reference_digest)
-        os.makedirs(pt.dirname(filename), exist_ok=True)
-        with tarfile.open(filename) as t:
-            print('extracting', filename)
-            t.extractall(pt.dirname(filename))
-    return path
+    return "lib/libjpeg-turbo"
 
 
 # download sources
@@ -140,79 +128,8 @@ def touch(path):
 
 class cmake_build_ext(build_ext):
     def run(self):
-        skip_path = pt.join(_libdir(), SKIP_BUILD_NAME)
-        if not pt.exists(skip_path) or os.getenv('FORCE_BUILD'):
-            self.build_cmake_dependencies()
-            touch(skip_path)
-        else:
-            print('Dependencies already built, skipping')
         # build extensions
         super().run()
-
-    def build_cmake_dependencies(self):
-        flags = []
-        if OS == 'darwin':
-            if ARCHFLAGS:
-                flags.append("-DCMAKE_OSX_ARCHITECTURES=" + ";".join(ARCHFLAGS))
-        if not SKIP_YASM_BUILD:
-            self.build_cmake_dependency(YASM_DIR, [
-                '-DBUILD_SHARED_LIBS=OFF'
-            ])
-
-        cflags = os.getenv('CFLAGS', '')
-        ldflags = os.getenv('LDFLAGS', '')
-        if OS == 'linux':
-            # enable LTO
-            cflags = '-flto ' + cflags
-            # same as extension
-            ldflags = (
-                '-flto '
-                '-Wl,'  # following are linker options
-                '--strip-all,'  # Remove all symbols
-                '--exclude-libs,ALL,'  # Do not export symbols
-                '--gc-sections '  # Remove unused sections'
-            ) + ldflags
-        env = {
-            # custom CFLAGS - depends on platform
-            'CFLAGS': cflags,
-            # custom LDFLAGS - depends on platform
-            'LDFLAGS': ldflags,
-        }
-        if YASM_DIR:
-            # add YASM to the path
-            env['PATH'] = pt.join(YASM_DIR, BUILD_DIR) + os.pathsep + os.getenv('PATH', '')
-        self.build_cmake_dependency(JPEG_DIR, [
-            *flags,
-            '-DWITH_CRT_DLL=1',  # fixes https://bugs.python.org/issue24872
-            '-DENABLE_SHARED=0',
-            '-DREQUIRE_SIMD=1',
-            '-DCMAKE_POSITION_INDEPENDENT_CODE=ON',
-        ], env=env)
-
-    def build_cmake_dependency(self, path, options, env=None):
-        cur_dir = pt.abspath(os.curdir)
-        build_dir = pt.join(path, BUILD_DIR)
-        if not pt.exists(build_dir):
-            os.makedirs(build_dir)
-        os.chdir(build_dir)
-        config = 'Debug' if self.debug else 'Release'
-        env = dict(os.environ, **(env or {}))
-        subprocess.check_call([
-            CMAKE_PATH,
-            '-G' + make_type(), '-Wno-dev',
-            '-DCMAKE_BUILD_TYPE=' + config,
-            *options,
-            pt.join(path)
-        ], stdout=sys.stdout, stderr=sys.stderr, env=env)
-        if not self.dry_run:
-            subprocess.check_call([
-                CMAKE_PATH, '--build', '.', '--config', config
-            ], stdout=sys.stdout, stderr=sys.stderr, env=env)
-        os.chdir(cur_dir)
-
-
-def _libdir():
-    return pt.join(JPEG_DIR, BUILD_DIR)
 
 
 def _staticlib():
