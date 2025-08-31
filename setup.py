@@ -59,157 +59,17 @@ if OS == 'darwin':
     if ARCHFLAGS:
         BUILD_DIR = 'build_' + '_'.join(ARCHFLAGS)
 
-YASM_VERSION = '1.3.0'
-YASM_SOURCE = 'yasm-%s.tar.gz' % YASM_VERSION
-YASM_URL = 'https://github.com/yasm/yasm/releases/download/v%s/' % YASM_VERSION + YASM_SOURCE
-JPEG_VERSION = '3.1.0'
-JPEG_SOURCE = 'libjpeg-turbo-%s.tar.gz' % JPEG_VERSION
-JPEG_URL = 'https://github.com/libjpeg-turbo/libjpeg-turbo/archive/%s.tar.gz' % JPEG_VERSION
-
-SKIP_BUILD_NAME = 'skip_build'
-# skip Yasm build if nasm or yasm is available
-SKIP_YASM_BUILD = shutil.which('nasm') is not None or shutil.which('yasm') is not None
-
-
-def verify_file(path, reference_digest, read_size=128*1024):
-    h = hashlib.sha3_256()
-    with open(path, 'rb') as fp:
-        while True:
-            data = fp.read(read_size)
-            if not data:
-                break
-            h.update(data)
-    digest = h.hexdigest()
-    if reference_digest != digest:
-        raise RuntimeError(
-            f'Verification of {path} failed, '
-            f'expected sha3_256 hash {reference_digest}, '
-            f'got {digest}'
-        )
-
-
-def untar_url(url, filename, reference_digest):
-    path = filename.rstrip('.tar.gz')
-    if not pt.exists(filename):
-        os.makedirs(pt.dirname(filename), exist_ok=True)
-        print('downloading', url)
-        urllib.request.urlretrieve(url, filename)
-    if not pt.exists(path):
-        print('verifying', filename)
-        verify_file(filename, reference_digest)
-        os.makedirs(pt.dirname(filename), exist_ok=True)
-        with tarfile.open(filename) as t:
-            print('extracting', filename)
-            t.extractall(pt.dirname(filename))
-    return path
-
-
-# download sources
-if SKIP_YASM_BUILD:
-    YASM_DIR = None
-else:
-    YASM_DIR = untar_url(
-        YASM_URL,
-        pt.join(PACKAGE_DIR, 'lib', YASM_SOURCE),
-        '56bf07340b7a3bbfec94f89894db2c0d487d534d90c99241ba45b70feaa1a0f3',
-    )
-JPEG_DIR = untar_url(
-    JPEG_URL,
-    pt.join(PACKAGE_DIR, 'lib', JPEG_SOURCE),
-    '104ff4419619633dd3fb60746d871440d560be0c24780eeca444b6f0a7cf9178',
-)
-
+YASM_DIR = None
+JPEG_DIR = "lib/libjpeg-turbo"
 
 def cvar(name):
     return sysconfig.get_config_var(name)
 
 
-def make_type():
-    if OS in ('linux', 'darwin'):
-        return 'Unix Makefiles'
-    elif OS == 'windows':
-        return 'NMake Makefiles'
-    else:
-        raise RuntimeError('Platform not supported: %s, %s' % (OS, ARCH))
-
-
-def touch(path):
-    with open(path, 'w'):
-        pass
-
-
 class cmake_build_ext(build_ext):
     def run(self):
-        skip_path = pt.join(_libdir(), SKIP_BUILD_NAME)
-        if not pt.exists(skip_path) or os.getenv('FORCE_BUILD'):
-            self.build_cmake_dependencies()
-            touch(skip_path)
-        else:
-            print('Dependencies already built, skipping')
         # build extensions
         super().run()
-
-    def build_cmake_dependencies(self):
-        flags = []
-        if OS == 'darwin':
-            if ARCHFLAGS:
-                flags.append("-DCMAKE_OSX_ARCHITECTURES=" + ";".join(ARCHFLAGS))
-        if not SKIP_YASM_BUILD:
-            self.build_cmake_dependency(YASM_DIR, [
-                '-DBUILD_SHARED_LIBS=OFF'
-            ])
-
-        cflags = os.getenv('CFLAGS', '')
-        ldflags = os.getenv('LDFLAGS', '')
-        if OS == 'linux':
-            # enable LTO
-            cflags = '-flto ' + cflags
-            # same as extension
-            ldflags = (
-                '-flto '
-                '-Wl,'  # following are linker options
-                '--strip-all,'  # Remove all symbols
-                '--exclude-libs,ALL,'  # Do not export symbols
-                '--gc-sections '  # Remove unused sections'
-            ) + ldflags
-        env = {
-            # custom CFLAGS - depends on platform
-            'CFLAGS': cflags,
-            # custom LDFLAGS - depends on platform
-            'LDFLAGS': ldflags,
-        }
-        if YASM_DIR:
-            # add YASM to the path
-            env['PATH'] = pt.join(YASM_DIR, BUILD_DIR) + os.pathsep + os.getenv('PATH', '')
-        self.build_cmake_dependency(JPEG_DIR, [
-            *flags,
-            '-DWITH_CRT_DLL=1',  # fixes https://bugs.python.org/issue24872
-            '-DENABLE_SHARED=0',
-            '-DREQUIRE_SIMD=1',
-            '-DCMAKE_POSITION_INDEPENDENT_CODE=ON',
-        ], env=env)
-
-    def build_cmake_dependency(self, path, options, env=None):
-        cur_dir = pt.abspath(os.curdir)
-        build_dir = pt.join(path, BUILD_DIR)
-        if not pt.exists(build_dir):
-            os.makedirs(build_dir)
-        os.chdir(build_dir)
-        config = 'Debug' if self.debug else 'Release'
-        env = dict(os.environ, **(env or {}))
-        subprocess.check_call([
-            CMAKE_PATH,
-            '-G' + make_type(), '-Wno-dev',
-            '-DCMAKE_BUILD_TYPE=' + config,
-            *options,
-            pt.join(path)
-        ], stdout=sys.stdout, stderr=sys.stderr, env=env)
-        if not self.dry_run:
-            subprocess.check_call([
-                CMAKE_PATH, '--build', '.', '--config', config
-            ], stdout=sys.stdout, stderr=sys.stderr, env=env)
-        os.chdir(cur_dir)
-
 
 def _libdir():
     return pt.join(JPEG_DIR, BUILD_DIR)
