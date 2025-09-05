@@ -90,7 +90,7 @@ def make_jpeg_module():
         pt.join(JPEG_DIR, 'src'),
         pt.join(PACKAGE_DIR, 'simplejpeg'),
     ]
-    static_libs = [pt.join(_libdir(), _staticlib())]
+    static_libs = []
     cython_files = [pt.join('simplejpeg', '_jpeg.pyx')]
     for cython_file in cython_files:
         if pt.exists(cython_file):
@@ -99,7 +99,7 @@ def make_jpeg_module():
         pt.join('simplejpeg', '_jpeg.c'),
         pt.join('simplejpeg', '_color.c')
     ]
-    extra_link_args = []
+    extra_link_args = ['-lturbojpeg']
     extra_compile_args = []
     macros = [
         ('NPY_NO_DEPRECATED_API', NPY_API_VERSION),
